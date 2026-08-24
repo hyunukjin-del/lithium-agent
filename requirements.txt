@@ -1,7 +1,4 @@
 streamlit
 pandas
 plotly
-pydantic
-langchain
-langchain-openai
-langchain-community
+openai
