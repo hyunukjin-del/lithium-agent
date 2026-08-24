@@ -28,7 +28,7 @@ if "cycle_history" not in st.session_state:
     ]
 
 # =========================================================
-# 2. 화학공학 정밀 연산 함수 (인코딩 에러 방지 처리 완료)
+# 2. 화학공학 정밀 연산 함수
 # =========================================================
 def calculate_reaction_mass_balance(feed_li2co3_g, filtrate_li_g_l, filtrate_vol_l, recovered_dry_caco3_g, **kwargs):
     MW_LI2CO3, MW_CACO3, MW_LIOH, MW_LI = 73.89, 100.09, 23.95, 6.94
@@ -165,7 +165,7 @@ with st.sidebar:
     except Exception:
         pass
         
-    api_key = st.text_input("OpenAI API Key", value=default_key, type="password", help="sk-... 형태의 키를 입력하세요")
+    api_key = st.text_input("OpenAI API Key", value=default_key, type="password", help="sk-로 시작하는 실제 영문/숫자 API 키를 입력하세요")
     model_name = st.selectbox("LLM 모델", ["gpt-4o", "gpt-4o-mini"], index=0)
     
     st.markdown("---")
@@ -246,8 +246,13 @@ with tab_chat:
         user_query = quick_input
 
     if user_query:
-        if not api_key:
-            st.error("좌측 사이드바에서 OpenAI API Key를 먼저 입력해주세요!")
+        # API Key 유효성 사전 검사 (한글/공백/따옴표 방어)
+        clean_key = api_key.strip().replace('"', '').replace("'", "")
+        
+        if not clean_key:
+            st.error("⚠️ 좌측 사이드바에서 OpenAI API Key를 입력해주세요!")
+        elif not clean_key.startswith("sk-") or not clean_key.isascii():
+            st.error("⚠️ 입력된 API Key가 올바르지 않습니다. 한글이나 따옴표가 없는 순수 영문/숫자 형태의 'sk-...' 키를 입력해주세요.")
         else:
             st.session_state.messages.append({"role": "user", "content": user_query})
             with st.chat_message("user"):
@@ -256,7 +261,7 @@ with tab_chat:
             with st.chat_message("assistant"):
                 with st.spinner("물질수지 및 불순물 거동 분석 중..."):
                     try:
-                        client = OpenAI(api_key=api_key)
+                        client = OpenAI(api_key=clean_key)
                         
                         system_prompt = (
                             "당신은 탄산리튬 가성화(Causticizing) 및 CaO 칼슘 루핑 전문 공정 최적화 AI 에이전트입니다. "
@@ -268,7 +273,6 @@ with tab_chat:
                         for m in st.session_state.messages:
                             messages_payload.append({"role": m["role"], "content": str(m["content"])})
 
-                        # 1차 LLM 호출
                         response = client.chat.completions.create(
                             model=model_name,
                             messages=messages_payload,
@@ -279,9 +283,7 @@ with tab_chat:
                         
                         response_msg = response.choices[0].message
                         
-                        # 도구 실행이 필요한 경우
                         if response_msg.tool_calls:
-                            # assistant의 tool_call 메시지 추가
                             messages_payload.append({
                                 "role": "assistant",
                                 "tool_calls": [
@@ -296,7 +298,6 @@ with tab_chat:
                                 ]
                             })
                             
-                            # 각 도구 실행 후 결과 추가 (인코딩 안전 처리)
                             for tool_call in response_msg.tool_calls:
                                 fn_name = tool_call.function.name
                                 fn_args = json.loads(tool_call.function.arguments)
@@ -309,7 +310,6 @@ with tab_chat:
                                         "content": json.dumps(tool_result, ensure_ascii=True)
                                     })
                             
-                            # 최종 응답 도출
                             final_response = client.chat.completions.create(
                                 model=model_name,
                                 messages=messages_payload,
