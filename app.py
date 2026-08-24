@@ -15,7 +15,7 @@ st.set_page_config(
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "안녕하세요! 탄산리튬 가성화 및 CaO 리사이클링 공정 에이전트입니다. 실험 데이터 진단이나 다음 회차 투입량 처방이 필요하시면 언제든 질문해 주세요."}
+        {"role": "assistant", "content": "안녕하세요! 탄산리튬 가성화 및 CaO 리사이클링 공정 AI 에이전트입니다. 실험 데이터 진단이나 다음 회차 투입량 처방이 필요하시면 질문해 주세요."}
     ]
 
 if "cycle_history" not in st.session_state:
@@ -28,9 +28,9 @@ if "cycle_history" not in st.session_state:
     ]
 
 # =========================================================
-# 2. 화학공학 정밀 연산 함수
+# 2. 화학공학 정밀 연산 함수 (Python Tools)
 # =========================================================
-def calculate_reaction_mass_balance(feed_li2co3_g, filtrate_li_g_l, filtrate_vol_l, recovered_dry_caco3_g, **kwargs):
+def calculate_reaction_mass_balance(feed_li2co3_g, filtrate_li_g_l=1.78, filtrate_vol_l=1.05, recovered_dry_caco3_g=12.85, **kwargs):
     MW_LI2CO3, MW_CACO3, MW_LIOH, MW_LI = 73.89, 100.09, 23.95, 6.94
     feed_moles = feed_li2co3_g / MW_LI2CO3
     inlet_li_g = feed_li2co3_g * (2 * MW_LI / MW_LI2CO3)
@@ -44,7 +44,7 @@ def calculate_reaction_mass_balance(feed_li2co3_g, filtrate_li_g_l, filtrate_vol
     caco3_yield_pct = (recovered_dry_caco3_g / theo_caco3_g) * 100
 
     return {
-        "input_li_g": round(inlet_li_g, 3),
+        "inlet_li_g": round(inlet_li_g, 3),
         "recovered_li_g": round(recovered_li_g, 3),
         "li_recovery_pct": round(li_recovery_pct, 2),
         "conversion_pct": round(conversion_pct, 2),
@@ -59,7 +59,7 @@ def diagnose_impurity_and_operability(solid_si_wt, solid_al_wt, solid_mg_wt, fil
     status = "Normal"
 
     if solid_si_wt >= 1.20:
-        diagnostics.append(f"Si 농도({solid_si_wt} wt%)가 임계치(1.20 wt%) 초과: C-S-H 형성 및 CaO 활성도 저하")
+        diagnostics.append(f"Si 농도({solid_si_wt} wt%)가 임계치(1.20 wt%) 초과: C-S-H 형성 및 유효 CaO 활성도 저하")
         status = "Critical"
     if solid_al_wt >= 0.50:
         diagnostics.append(f"Al 농도({solid_al_wt} wt%) 상승: 소성 시 비활성 클링커(Ca3Al2O6) 형성 위험")
@@ -109,7 +109,7 @@ TOOL_DEFINITIONS = [
                     "filtrate_vol_l": {"type": "number", "description": "총 회수된 여액 부피 (L)"},
                     "recovered_dry_caco3_g": {"type": "number", "description": "회수된 건조 CaCO3 무게 (g)"}
                 },
-                "required": ["feed_li2co3_g", "filtrate_li_g_l", "filtrate_vol_l", "recovered_dry_caco3_g"]
+                "required": ["feed_li2co3_g"]
             }
         }
     },
@@ -159,15 +159,32 @@ AVAILABLE_FUNCTIONS = {
 # =========================================================
 with st.sidebar:
     st.header("⚙️ 에이전트 설정")
+    
+    # Secrets 키 읽기 시도
     default_key = ""
     try:
         default_key = st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
         pass
-        
-    api_key = st.text_input("OpenAI API Key", value=default_key, type="password", help="sk-로 시작하는 실제 영문/숫자 API 키를 입력하세요")
+
+    api_key_input = st.text_input("OpenAI API Key", value=default_key, type="password", help="sk-... 형태의 영문 API 키를 입력하세요")
     model_name = st.selectbox("LLM 모델", ["gpt-4o", "gpt-4o-mini"], index=0)
-    
+
+    # 안전한 키 검증
+    clean_key = api_key_input.strip().replace('"', '').replace("'", "")
+    is_valid_key = False
+    try:
+        clean_key.encode("ascii")
+        if clean_key.startswith("sk-") and len(clean_key) > 20:
+            is_valid_key = True
+    except UnicodeEncodeError:
+        is_valid_key = False
+
+    if is_valid_key:
+        st.success("✅ OpenAI API 연결됨")
+    else:
+        st.warning("⚠️ 유효한 API Key를 입력해 주세요")
+
     st.markdown("---")
     st.header("🧪 신규 Cycle 데이터 등록")
     with st.form("add_cycle_form"):
@@ -226,13 +243,13 @@ tab_chat, tab_charts, tab_data = st.tabs(["💬 AI 공정 에이전트 대화", 
 with tab_chat:
     st.subheader("🤖 공정 진단 및 처방 대화창")
     
-    st.markdown("**💡 추천 빠른 질문:**")
+    st.markdown("**💡 추천 빠른 질문 버튼:**")
     qc1, qc2, qc3 = st.columns(3)
     quick_input = None
     if qc1.button("📌 최근 Cycle 종합 진단"):
         quick_input = f"현재 Cycle {int(last_row['Cycle'])}까지 진행됐어. 고상 Si는 {last_row['Solid_Si_wt']}%, Mg는 {last_row['Solid_Mg_wt']}%, Al은 {last_row['Solid_Al_wt']}%, 여과시간은 {last_row['Filtration_Time_min']}분이야. 공정 이상 유무를 진단해줘."
     if qc2.button("⚠️ Si 농축 원인 및 여과 지연 대책"):
-        quick_input = "Si와 Mg 농축이 여과 속도와 전환율에 미치는 영향을 분석하고 공정 해결 방안을 알려줘."
+        quick_input = "Si와 Mg 농축이 여과 속도와 전환율에 미치는 영향을 분석하고 해결 방안을 알려줘."
     if qc3.button("🎯 다음 회차 Purge 및 CaO 처방"):
         quick_input = f"다음 회차에 Li2CO3 10g을 처리할 예정이야. 현재 재생 CaO가 {last_row['Recycle_CaO_g']}g이고 Si가 {last_row['Solid_Si_wt']}%인데 최적 퍼지율과 Fresh CaO 보충량을 계산해줘."
 
@@ -246,20 +263,15 @@ with tab_chat:
         user_query = quick_input
 
     if user_query:
-        # API Key 유효성 사전 검사 (한글/공백/따옴표 방어)
-        clean_key = api_key.strip().replace('"', '').replace("'", "")
-        
-        if not clean_key:
-            st.error("⚠️ 좌측 사이드바에서 OpenAI API Key를 입력해주세요!")
-        elif not clean_key.startswith("sk-") or not clean_key.isascii():
-            st.error("⚠️ 입력된 API Key가 올바르지 않습니다. 한글이나 따옴표가 없는 순수 영문/숫자 형태의 'sk-...' 키를 입력해주세요.")
+        if not is_valid_key:
+            st.error("⚠️ 좌측 사이드바에 유효한 OpenAI API Key('sk-...')를 입력해 주세요.")
         else:
             st.session_state.messages.append({"role": "user", "content": user_query})
             with st.chat_message("user"):
                 st.markdown(user_query)
 
             with st.chat_message("assistant"):
-                with st.spinner("물질수지 및 불순물 거동 분석 중..."):
+                with st.spinner("GPT-4o가 공정 수지 도구를 호출하여 분석 중입니다..."):
                     try:
                         client = OpenAI(api_key=clean_key)
                         
@@ -283,6 +295,7 @@ with tab_chat:
                         
                         response_msg = response.choices[0].message
                         
+                        # AI가 계산 도구를 호출했을 때 실행
                         if response_msg.tool_calls:
                             messages_payload.append({
                                 "role": "assistant",
