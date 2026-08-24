@@ -2,12 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
-from pydantic import BaseModel, Field
-from langchain.tools import tool
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_openai_tools_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from openai import OpenAI
 
 # =========================================================
 # 1. 페이지 기본 설정 및 세션 초기화
@@ -35,24 +30,10 @@ if "cycle_history" not in st.session_state:
     ]
 
 # =========================================================
-# 2. 에이전트 전용 화학공학 계산 도구 (Tools)
+# 2. 화학공학 정밀 연산 함수 (Python Tools)
 # =========================================================
-class MassBalanceInput(BaseModel):
-    feed_li2co3_g: float = Field(description="투입된 탄산리튬 무게 (g)")
-    feed_volume_l: float = Field(description="용액 부피 (L)")
-    filtrate_li_g_l: float = Field(description="여액 평균 Li 농도 (g/L)")
-    filtrate_vol_l: float = Field(description="총 회수된 여액 부피 (L)")
-    recovered_dry_caco3_g: float = Field(description="회수된 건조 CaCO3 무게 (g)")
-
-@tool(args_schema=MassBalanceInput)
-def calculate_reaction_mass_balance(
-    feed_li2co3_g: float,
-    feed_volume_l: float,
-    filtrate_li_g_l: float,
-    filtrate_vol_l: float,
-    recovered_dry_caco3_g: float
-) -> str:
-    """탄산리튬 가성화 반응의 리튬 회수율, 반응 전환율 및 CaCO3 수율을 계산합니다."""
+def calculate_reaction_mass_balance(feed_li2co3_g, filtrate_li_g_l, filtrate_vol_l, recovered_dry_caco3_g, **kwargs):
+    """탄산리튬 가성화 반응의 리튬 회수율, 반응 전환율 및 CaCO3 수율 계산"""
     MW_LI2CO3, MW_CACO3, MW_LIOH, MW_LI = 73.89, 100.09, 23.95, 6.94
     feed_moles = feed_li2co3_g / MW_LI2CO3
     inlet_li_g = feed_li2co3_g * (2 * MW_LI / MW_LI2CO3)
@@ -65,7 +46,7 @@ def calculate_reaction_mass_balance(
     conversion_pct = (recovered_lioh_g / theo_lioh_g) * 100
     caco3_yield_pct = (recovered_dry_caco3_g / theo_caco3_g) * 100
 
-    return json.dumps({
+    return {
         "투입 Li (g)": round(inlet_li_g, 3),
         "회수 Li (g)": round(recovered_li_g, 3),
         "Li 회수율 (%)": round(li_recovery_pct, 2),
@@ -74,52 +55,30 @@ def calculate_reaction_mass_balance(
         "실제 CaCO3 (g)": round(recovered_dry_caco3_g, 2),
         "CaCO3 수율 (%)": round(caco3_yield_pct, 2),
         "생산된 LiOH 환산량 (g)": round(recovered_lioh_g, 2)
-    }, ensure_ascii=False)
+    }
 
-class ImpurityDiagnosisInput(BaseModel):
-    solid_si_wt: float = Field(description="소성 재생 CaO 내 Si 함량 (wt%)")
-    solid_al_wt: float = Field(description="소성 재생 CaO 내 Al 함량 (wt%)")
-    solid_mg_wt: float = Field(description="소성 재생 CaO 내 Mg 함량 (wt%)")
-    filtration_time_min: float = Field(description="감압여과 소요시간 (분)")
-
-@tool(args_schema=ImpurityDiagnosisInput)
-def diagnose_impurity_and_operability(
-    solid_si_wt: float,
-    solid_al_wt: float,
-    solid_mg_wt: float,
-    filtration_time_min: float
-) -> str:
-    """재생 CaO 내 불순물(Si, Al, Mg) 축적 상태 및 여과 지연 현상을 진단합니다."""
+def diagnose_impurity_and_operability(solid_si_wt, solid_al_wt, solid_mg_wt, filtration_time_min, **kwargs):
+    """불순물 축적 상태 및 여과 지연 이상 현상 진단"""
     diagnostics = []
     status = "정상"
 
     if solid_si_wt >= 1.20:
-        diagnostics.append(f"[경고] Si 농도({solid_si_wt} wt%)가 임계치(1.20 wt%)를 초과하여 유효 CaO 활성도가 저하되었습니다.")
+        diagnostics.append(f"[경고] Si 농도({solid_si_wt} wt%)가 임계치(1.20 wt%)를 초과하여 규산칼슘(C-S-H) 형성에 따른 유효 CaO 활성도 저하가 심각합니다.")
         status = "위험"
     if solid_al_wt >= 0.50:
         diagnostics.append(f"[주의] Al 농도({solid_al_wt} wt%) 상승으로 소성 시 비활성 클링커(Ca3Al2O6) 형성 위험이 있습니다.")
         if status != "위험": status = "주의"
     if solid_mg_wt >= 0.60 or filtration_time_min >= 6.0:
-        diagnostics.append(f"[경고] 여과시간({filtration_time_min}분) 및 Mg 농도({solid_mg_wt} wt%) 상승으로 여과포 눈막힘이 발생 중입니다.")
+        diagnostics.append(f"[경고] 여과시간({filtration_time_min}분) 및 Mg 농도({solid_mg_wt} wt%) 상승으로 여과포 눈막힘 및 케이크 슬라임화가 발생 중입니다.")
         status = "위험"
 
-    return json.dumps({
+    return {
         "공정 상태": status,
         "진단 목록": diagnostics if diagnostics else ["모든 불순물 수치 및 여과 속도가 정상 범위 내에 있습니다."]
-    }, ensure_ascii=False)
+    }
 
-class PurgeAdvisorInput(BaseModel):
-    target_feed_li2co3_g: float = Field(description="다음 회차 Li2CO3 투입 목표량 (g)")
-    current_recycled_cao_g: float = Field(description="소성 후 회수된 재생 CaO 양 (g)")
-    solid_si_wt: float = Field(description="현재 재생 CaO 내 Si 함량 (wt%)")
-
-@tool(args_schema=PurgeAdvisorInput)
-def calculate_optimal_purge_and_makeup(
-    target_feed_li2co3_g: float,
-    current_recycled_cao_g: float,
-    solid_si_wt: float
-) -> str:
-    """불순물 제어를 위한 최적 고형분 퍼지(Purge) 비율 및 신규 Fresh CaO 보충량을 산출합니다."""
+def calculate_optimal_purge_and_makeup(target_feed_li2co3_g, current_recycled_cao_g, solid_si_wt, **kwargs):
+    """최적 고형분 퍼지(Purge) 비율 및 신규 Fresh CaO 보충량 산출"""
     req_total_cao = (target_feed_li2co3_g / 73.89) * 56.08 * 1.05
 
     if solid_si_wt < 0.8:
@@ -133,22 +92,79 @@ def calculate_optimal_purge_and_makeup(
     usable_recycled_cao = current_recycled_cao_g - purged_cao
     makeup_fresh_cao = max(0.0, req_total_cao - usable_recycled_cao)
 
-    return json.dumps({
+    return {
         "목표 총 CaO 요구량 (g)": round(req_total_cao, 2),
         "권장 퍼지 비율 (%)": round(purge_ratio * 100, 1),
         "폐기할 재생 CaO 양 (g)": round(purged_cao, 2),
         "재사용할 재생 CaO 양 (g)": round(usable_recycled_cao, 2),
         "신규(Fresh) CaO 보충량 (g)": round(makeup_fresh_cao, 2)
-    }, ensure_ascii=False)
+    }
 
-tools = [calculate_reaction_mass_balance, diagnose_impurity_and_operability, calculate_optimal_purge_and_makeup]
+# OpenAI 도구 정의 스키마
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_reaction_mass_balance",
+            "description": "탄산리튬 가성화 반응의 리튬 회수율, 반응 전환율 및 CaCO3 수율을 계산합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "feed_li2co3_g": {"type": "number", "description": "투입된 탄산리튬 무게 (g)"},
+                    "filtrate_li_g_l": {"type": "number", "description": "여액 평균 Li 농도 (g/L)"},
+                    "filtrate_vol_l": {"type": "number", "description": "총 회수된 여액 부피 (L)"},
+                    "recovered_dry_caco3_g": {"type": "number", "description": "회수된 건조 CaCO3 무게 (g)"}
+                },
+                "required": ["feed_li2co3_g", "filtrate_li_g_l", "filtrate_vol_l", "recovered_dry_caco3_g"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "diagnose_impurity_and_operability",
+            "description": "재생 CaO 내 불순물(Si, Al, Mg) 축적 상태 및 여과 지연 현상을 진단합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "solid_si_wt": {"type": "number", "description": "소성 재생 CaO 내 Si 함량 (wt%)"},
+                    "solid_al_wt": {"type": "number", "description": "소성 재생 CaO 내 Al 함량 (wt%)"},
+                    "solid_mg_wt": {"type": "number", "description": "소성 재생 CaO 내 Mg 함량 (wt%)"},
+                    "filtration_time_min": {"type": "number", "description": "감압여과 소요시간 (분)"}
+                },
+                "required": ["solid_si_wt", "solid_al_wt", "solid_mg_wt", "filtration_time_min"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_optimal_purge_and_makeup",
+            "description": "불순물 제어를 위한 최적 고형분 퍼지(Purge) 비율 및 신규 Fresh CaO 보충량을 산출합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_feed_li2co3_g": {"type": "number", "description": "다음 회차 Li2CO3 투입 목표량 (g)"},
+                    "current_recycled_cao_g": {"type": "number", "description": "소성 후 회수된 재생 CaO 양 (g)"},
+                    "solid_si_wt": {"type": "number", "description": "현재 재생 CaO 내 Si 함량 (wt%)"}
+                },
+                "required": ["target_feed_li2co3_g", "current_recycled_cao_g", "solid_si_wt"]
+            }
+        }
+    }
+]
+
+AVAILABLE_FUNCTIONS = {
+    "calculate_reaction_mass_balance": calculate_reaction_mass_balance,
+    "diagnose_impurity_and_operability": diagnose_impurity_and_operability,
+    "calculate_optimal_purge_and_makeup": calculate_optimal_purge_and_makeup
+}
 
 # =========================================================
-# 3. 사이드바 - API 설정 및 실측치 등록기
+# 3. 사이드바 - API 키 설정 및 실측치 등록기
 # =========================================================
 with st.sidebar:
     st.header("⚙️ 에이전트 설정")
-    # Streamlit Secrets에 저장되어 있으면 자동 불러오기 지원
     default_key = st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else ""
     api_key = st.text_input("OpenAI API Key", value=default_key, type="password", help="sk-... 형태의 키를 입력하세요")
     model_name = st.selectbox("LLM 모델", ["gpt-4o", "gpt-4o-mini"], index=0)
@@ -211,12 +227,11 @@ tab_chat, tab_charts, tab_data = st.tabs(["💬 AI 공정 에이전트 대화", 
 with tab_chat:
     st.subheader("🤖 공정 진단 및 처방 대화창")
     
-    # 퀵 프롬프트 버튼
     st.markdown("**💡 추천 빠른 질문:**")
     qc1, qc2, qc3 = st.columns(3)
     quick_input = None
     if qc1.button("📌 최근 Cycle 종합 진단"):
-        quick_input = f"현재 Cycle {int(last_row['Cycle'])}까지 진행됐어. 고상 Si는 {last_row['Solid_Si_wt']}%, Mg는 {last_row['Solid_Mg_wt']}%, 여과시간은 {last_row['Filtration_Time_min']}분이야. 공정 이상 유무를 진단해줘."
+        quick_input = f"현재 Cycle {int(last_row['Cycle'])}까지 진행됐어. 고상 Si는 {last_row['Solid_Si_wt']}%, Mg는 {last_row['Solid_Mg_wt']}%, Al은 {last_row['Solid_Al_wt']}%, 여과시간은 {last_row['Filtration_Time_min']}분이야. 공정 이상 유무를 진단해줘."
     if qc2.button("⚠️ Si 농축 원인 및 여과 지연 대책"):
         quick_input = "Si와 Mg 농축이 여과 속도와 전환율에 미치는 영향을 분석하고 공정 해결 방안을 알려줘."
     if qc3.button("🎯 다음 회차 Purge 및 CaO 처방"):
@@ -239,35 +254,57 @@ with tab_chat:
             with st.chat_message("user"):
                 st.markdown(user_query)
 
-            # LangChain Agent 호출
             with st.chat_message("assistant"):
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", """당신은 탄산리튬 가성화(Causticizing) 및 CaO 칼슘 루핑 전문 공정 최적화 AI 에이전트입니다.
-반드시 제공된 도구(Tools)를 활용하여 오차 없이 계산과 불순물 진단을 수행하세요.
-답변은 공정 엔지니어 관점에서 명확하고 실행 가능한 수치와 처방(Prescription)을 제시하세요."""),
-                    MessagesPlaceholder(variable_name="chat_history"),
-                    ("human", "{input}"),
-                    MessagesPlaceholder(variable_name="agent_scratchpad"),
-                ])
-
-                llm = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
-                agent = create_openai_tools_agent(llm, tools, prompt)
-                agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-                chat_history = []
-                for m in st.session_state.messages[:-1]:
-                    if m["role"] == "user":
-                        chat_history.append(HumanMessage(content=m["content"]))
-                    elif m["role"] == "assistant":
-                        chat_history.append(AIMessage(content=m["content"]))
-
                 with st.spinner("물질수지 및 불순물 거동 분석 중..."):
                     try:
-                        response = agent_executor.invoke({
-                            "input": user_query,
-                            "chat_history": chat_history
-                        })
-                        answer = response["output"]
+                        client = OpenAI(api_key=api_key)
+                        
+                        system_prompt = (
+                            "당신은 탄산리튬 가성화(Causticizing) 및 CaO 칼슘 루핑 전문 공정 최적화 AI 에이전트입니다. "
+                            "제공된 함수(Tool)를 적극 활용하여 정확한 수치 계산과 진단을 수행하세요. "
+                            "답변은 공정 엔지니어 관점에서 명확하고 실행 가능한 수치와 처방(Prescription)을 제시하세요."
+                        )
+                        
+                        messages_payload = [{"role": "system", "content": system_prompt}]
+                        for m in st.session_state.messages:
+                            messages_payload.append({"role": m["role"], "content": m["content"]})
+
+                        # 1차 LLM 호출 (도구 호출 여부 판단)
+                        response = client.chat.completions.create(
+                            model=model_name,
+                            messages=messages_payload,
+                            tools=TOOL_DEFINITIONS,
+                            tool_choice="auto",
+                            temperature=0
+                        )
+                        
+                        response_msg = response.choices[0].message
+                        
+                        # 도구 호출이 필요한 경우 실행
+                        if response_msg.tool_calls:
+                            messages_payload.append(response_msg)
+                            for tool_call in response_msg.tool_calls:
+                                fn_name = tool_call.function.name
+                                fn_args = json.loads(tool_call.function.arguments)
+                                
+                                if fn_name in AVAILABLE_FUNCTIONS:
+                                    tool_result = AVAILABLE_FUNCTIONS[fn_name](**fn_args)
+                                    messages_payload.append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call.id,
+                                        "content": json.dumps(tool_result, ensure_ascii=False)
+                                    })
+                            
+                            # 도구 결과를 바탕으로 최종 응답 생성
+                            final_response = client.chat.completions.create(
+                                model=model_name,
+                                messages=messages_payload,
+                                temperature=0
+                            )
+                            answer = final_response.choices[0].message.content
+                        else:
+                            answer = response_msg.content
+
                         st.markdown(answer)
                         st.session_state.messages.append({"role": "assistant", "content": answer})
                     except Exception as e:
@@ -278,7 +315,6 @@ with tab_charts:
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
-        # 차트 1: 불순물 농축선
         fig_imp = px.line(
             df, x="Cycle", y=["Solid_Si_wt", "Solid_Mg_wt", "Solid_Al_wt"],
             markers=True, title="재생 CaO 내 불순물 축적 추이 (wt%)",
@@ -287,7 +323,6 @@ with tab_charts:
         fig_imp.add_hline(y=1.20, line_dash="dash", line_color="red", annotation_text="Si 임계치 (1.20 wt%)")
         st.plotly_chart(fig_imp, use_container_width=True)
 
-        # 차트 2: 여과시간 지연
         fig_time = px.bar(
             df, x="Cycle", y="Filtration_Time_min",
             title="회차별 총 여과 소요시간 (분)",
@@ -297,7 +332,6 @@ with tab_charts:
         st.plotly_chart(fig_time, use_container_width=True)
 
     with chart_col2:
-        # 차트 3: Li 회수율 및 전환율
         fig_rec = px.line(
             df, x="Cycle", y=["Li_Recovery_pct", "Conversion_pct"],
             markers=True, title="회차별 Li 회수율 및 반응 전환율 (%)",
@@ -306,7 +340,6 @@ with tab_charts:
         fig_rec.add_hline(y=90.0, line_dash="dash", line_color="darkred", annotation_text="수율 한계 (90%)")
         st.plotly_chart(fig_rec, use_container_width=True)
 
-        # 차트 4: 투입 CaO 구성비
         fig_cao = px.bar(
             df, x="Cycle", y=["Recycle_CaO_g", "Fresh_CaO_g"],
             title="회차별 투입 CaO 구성 (재생 vs 신규)",
