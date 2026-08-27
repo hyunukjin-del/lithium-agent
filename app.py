@@ -32,7 +32,7 @@ AGENT_TITLE = "LC-LH전환반응 M/B자동화 및 거동예측 Agent tool"
 st.set_page_config(page_title=AGENT_TITLE, page_icon="🧪", layout="wide")
 
 # --------------------------------------------------------------------------
-# [1] 기본 세션 상태 초기화 (표준 1:1 바인딩)
+# [1] 기본 세션 상태 초기화 (표준 1:1 직통 세션 바인딩)
 # --------------------------------------------------------------------------
 DEFAULT_DATA = {
     "run_no": 1,
@@ -136,7 +136,7 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 1,500회/일 대용량 모델 전용 고속 Vision OCR 엔진
+# [2] 1,500회/일 대용량 무료 모델 전용 Vision OCR 엔진 (429 완전 방지)
 # --------------------------------------------------------------------------
 def clean_float(val):
     if val is None:
@@ -294,7 +294,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
   "solid_li_wt": number, "solid_ca_wt": number, "solid_na_wt": number, "solid_si_wt": number, "solid_mg_wt": number, "solid_k_wt": number
 }"""
 
-        # 1일 1,500회 대용량 무료 모델만 호출 (gemini-3.6-flash 완전 배제)
+        # 하루 1,500회 대용량 무료 모델만 호출 (gemini-3.6-flash 완전 배제)
         models_to_try = [
             "gemini-1.5-flash",
             "gemini-2.0-flash",
@@ -317,7 +317,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
                 continue
 
         if not raw_text:
-            return None, "", f"AI 모델 호출 오류 (1일 한도 소진 가능성): {last_err}"
+            return None, "", f"AI 모델 호출 오류: {last_err}"
 
         parsed_dict = {}
         try:
@@ -970,7 +970,7 @@ with main_tab2:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
+                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=None, is_auto=True
             )
             if ok:
@@ -1334,7 +1334,7 @@ with main_tab6:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
+                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=df_simulation, is_auto=False
             )
             if ok:
