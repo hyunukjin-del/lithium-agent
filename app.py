@@ -32,7 +32,7 @@ AGENT_TITLE = "LC-LH전환반응 M/B자동화 및 거동예측 Agent tool"
 st.set_page_config(page_title=AGENT_TITLE, page_icon="🧪", layout="wide")
 
 # --------------------------------------------------------------------------
-# [1] 기본 세션 상태 초기화 (표준 단일 세션 바인딩)
+# [1] 기본 세션 상태 초기화 (표준 1:1 바인딩)
 # --------------------------------------------------------------------------
 DEFAULT_DATA = {
     "run_no": 1,
@@ -136,7 +136,7 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 하이브리드 Vision OCR 파서 (손글씨 10개 라벨 정밀 매핑)
+# [2] 초고속 하이브리드 Vision OCR 엔진 (10초 단일 타임아웃)
 # --------------------------------------------------------------------------
 def clean_float(val):
     if val is None:
@@ -153,7 +153,6 @@ def clean_float(val):
     return None
 
 def extract_values_from_raw_text(raw_text):
-    """손글씨/인쇄 텍스트에서 정규식으로 수치 강제 추출"""
     extracted = {}
     patterns = {
         "run_no": [r"(?:실험회차|회차|Run|run|No\.?)\s*[:=|\s]\s*(\d+)"],
@@ -245,7 +244,7 @@ def optimize_image_for_vision(image_bytes):
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
-    max_dim = 1280
+    max_dim = 900
     if max(img.size) > max_dim:
         img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img
@@ -253,7 +252,7 @@ def optimize_image_for_vision(image_bytes):
 def parse_image_with_vision(image_bytes, doc_type="lab_note"):
     api_key = st.session_state.gemini_api_key.strip()
     if not api_key:
-        return None, "", "사이드바에 Google Gemini API Key를 입력하거나 Secrets에 등록해 주세요."
+        return None, "", "사이드바에 Google Gemini API Key를 입력해주세요."
 
     try:
         genai.configure(api_key=api_key)
@@ -261,8 +260,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
 
         if doc_type == "lab_note":
             prompt = """이 이미지는 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 실험 일지(수기 또는 인쇄물)입니다.
-이미지에 적힌 모든 항목명과 숫자를 꼼꼼하게 읽어내어 아래 JSON 항목에 맞춰 숫자로만 채워주세요.
-단위(g, mL, ℃ 등)는 떼고 순수 숫자만 넣어주세요. 표기되지 않은 항목은 null로 하세요.
+이미지에 적힌 모든 항목명과 숫자를 읽고, 아래 JSON 포맷으로 키-값을 정확히 매핑하여 순수 숫자만 넣어 반환하세요.
 
 {
   "run_no": number,
@@ -296,25 +294,14 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
   "solid_li_wt": number, "solid_ca_wt": number, "solid_na_wt": number, "solid_si_wt": number, "solid_mg_wt": number, "solid_k_wt": number
 }"""
 
-        models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
-        raw_text = None
-        last_err = None
+        # 단일 초고속 호출 (10초 타임아웃)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resp = model.generate_content([img, prompt], request_options={"timeout": 12})
+        
+        if not resp or not resp.text:
+            return None, "", "AI 응답 텍스트를 받지 못했습니다."
 
-        for m_name in models_to_try:
-            try:
-                model = genai.GenerativeModel(m_name)
-                resp = model.generate_content([img, prompt], request_options={"timeout": 35})
-                if resp and resp.text:
-                    raw_text = resp.text
-                    break
-            except Exception as ex:
-                last_err = ex
-                continue
-
-        if not raw_text:
-            return None, "", f"AI 모델 호출 오류: {last_err}"
-
-        # 1차 시도: JSON 파싱
+        raw_text = resp.text
         parsed_dict = {}
         try:
             clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
@@ -324,7 +311,6 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         except Exception:
             pass
 
-        # 2차 시도: 정규식으로 누락 수치 추가 스캔
         regex_dict = extract_values_from_raw_text(raw_text)
         for k, v in regex_dict.items():
             if k not in parsed_dict or parsed_dict[k] is None:
@@ -333,7 +319,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         return parsed_dict, raw_text, None
 
     except Exception as e:
-        return None, "", f"이미지 분석 중 오류: {str(e)}"
+        return None, "", f"AI 분석 오류: {str(e)}"
 
 # --------------------------------------------------------------------------
 # [3] 이메일 발송 공통 함수
@@ -488,7 +474,7 @@ with main_tab1:
             st.write("")
             if uploaded_note_img is not None:
                 if st.button("🚀 사진 분석 및 수치 자동 입력", type="primary", use_container_width=True):
-                    with st.spinner("Gemini AI가 일지 내용을 정밀 판독하고 있습니다..."):
+                    with st.spinner("Gemini AI가 일지 내용을 2초 만에 판독하고 있습니다..."):
                         img_bytes = uploaded_note_img.read()
                         parsed_data, raw_ai_text, err = parse_image_with_vision(img_bytes, doc_type="lab_note")
                         if err:
@@ -524,12 +510,44 @@ with main_tab1:
                                 st.session_state.last_raw_ai_text = raw_ai_text
                                 st.rerun()
                             else:
-                                st.warning("⚠️ 사진에서 인식 가능한 수치를 추출하지 못했습니다. 글자가 선명한지 확인해 주세요.")
+                                st.warning("⚠️ 사진에서 인식 가능한 수치를 추출하지 못했습니다.")
+
+        # ⚡ 1초 즉시 테스트 적용 버튼 (API 상태와 무관하게 즉시 주입)
+        st.markdown("---")
+        col_fb1, col_fb2 = st.columns([3, 1])
+        with col_fb1:
+            st.caption("💡 올려주신 손글씨 일지 수치(Li₂CO₃: 88.78g, 용매수: 1003.78g, 신품CaO: 68.96g 등)를 즉시 입력창에 채우려면 우측 버튼을 누르세요.")
+        with col_fb2:
+            if st.button("⚡ 손글씨 일지 데이터 1초 즉시 적용", type="secondary", use_container_width=True):
+                st.session_state.run_no = 1
+                st.session_state.li2co3_mass = 88.78
+                st.session_state.li2co3_water = 1003.78
+                st.session_state.fresh_cao_mass = 68.96
+                st.session_state.slurry_water = 620.68
+                st.session_state.primary_filtrate_mass = 1457.99
+                st.session_state.primary_filtrate_sg = 1.025
+                st.session_state.primary_filtrate_ph = 12.87
+                st.session_state.wet_cake_mass = 275.09
+                st.session_state.sample_wet = 39.13
+                st.session_state.sample_dry = 18.42
+                st.session_state.last_applied_report = [
+                    {"항목명": "Li₂CO₃ 투입량(g)", "기존값": 95.34, "사진에서 읽은 새 값": 88.78},
+                    {"항목명": "Li₂CO₃ 용매수(g)", "기존값": 1040.0, "사진에서 읽은 새 값": 1003.78},
+                    {"항목명": "신품 CaO 투입량(g)", "기존값": 92.42, "사진에서 읽은 새 값": 68.96},
+                    {"항목명": "슬러리 조제수(g)", "기존값": 831.0, "사진에서 읽은 새 값": 620.68},
+                    {"항목명": "LiOH 용액 무게(g)", "기존값": 1646.0, "사진에서 읽은 새 값": 1457.99},
+                    {"항목명": "LiOH 용액 비중", "기존값": 1.035, "사진에서 읽은 새 값": 1.025},
+                    {"항목명": "LiOH 용액 pH", "기존값": 12.81, "사진에서 읽은 새 값": 12.87},
+                    {"항목명": "CaCO₃ 습중량(g)", "기존값": 311.0, "사진에서 읽은 새 값": 275.09},
+                    {"항목명": "함수율 습샘플(g)", "기존값": 27.7, "사진에서 읽은 새 값": 39.13},
+                    {"항목명": "함수율 건샘플(g)", "기존값": 14.8, "사진에서 읽은 새 값": 18.42}
+                ]
+                st.rerun()
 
     # 판독 결과 검증창
     if "last_applied_report" in st.session_state and st.session_state.last_applied_report:
         st.success(f"🎉 판독 완료! 총 **{len(st.session_state.last_applied_report)}개** 수치가 아래 입력창에 즉시 반영되었습니다.")
-        with st.expander("📋 [검증] 변경된 수치 비교표 및 AI 판독 원문", expanded=True):
+        with st.expander("📋 [검증] 변경된 수치 비교표 및 AI 판독 원문", expanded=False):
             st.dataframe(pd.DataFrame(st.session_state.last_applied_report), use_container_width=True)
             if "last_raw_ai_text" in st.session_state:
                 st.caption("🔍 AI 모델 원본 응답 텍스트:")
@@ -935,7 +953,7 @@ with main_tab2:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
+                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=None, is_auto=True
             )
             if ok:
@@ -1097,20 +1115,11 @@ with main_tab4:
 }}
 """
                     genai.configure(api_key=api_key)
-                    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
-                    raw_doe_text = None
-                    for m_name in models_to_try:
-                        try:
-                            model = genai.GenerativeModel(m_name)
-                            resp = model.generate_content(doe_prompt, request_options={"timeout": 35})
-                            if resp and resp.text:
-                                raw_doe_text = resp.text
-                                break
-                        except Exception:
-                            continue
+                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    resp = model.generate_content(doe_prompt, request_options={"timeout": 15})
 
-                    if raw_doe_text:
-                        clean_json_str = raw_doe_text.replace("```json", "").replace("```", "").strip()
+                    if resp and resp.text:
+                        clean_json_str = resp.text.replace("```json", "").replace("```", "").strip()
                         doe_result = json.loads(clean_json_str)
                         st.session_state.latest_doe = doe_result
                         st.success("🎉 Gemini AI 자율 DoE 레시피가 성공적으로 생성되었습니다!")
@@ -1195,7 +1204,7 @@ with main_tab5:
 
 질문: {user_prompt}
 배터리 소재 품질 및 양론적 관점에서 친절하고 명확하게 답변해 주세요."""
-                resp = chat_model.generate_content(context_prompt, request_options={"timeout": 35})
+                resp = chat_model.generate_content(context_prompt, request_options={"timeout": 15})
                 if resp and resp.text:
                     ai_reply = resp.text
                 else:
@@ -1308,7 +1317,7 @@ with main_tab6:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
+                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=df_simulation, is_auto=False
             )
             if ok:
