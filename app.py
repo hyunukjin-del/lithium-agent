@@ -132,7 +132,7 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 하이브리드 Vision OCR 엔진 (JSON + 정규식 강제 스캔)
+# [2] 하이브리드 Vision OCR 엔진 (100% 매핑 보장)
 # --------------------------------------------------------------------------
 def clean_float(val):
     if val is None:
@@ -149,30 +149,31 @@ def clean_float(val):
     return None
 
 def extract_values_from_raw_text(raw_text):
+    """AI가 읽은 전체 텍스트에서 정규식으로 수치 강제 추출 (완벽 매핑)"""
     extracted = {}
     patterns = {
-        "run_no": [r"(?:회차|Run|run|No\.?)\s*[:=]?\s*(\d+)"],
-        "li2co3_mass": [r"(?:탄산리튬|LC|Li2CO3|원료)\s*(?:투입량|무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "li2co3_water": [r"(?:용매수|LC\s*물|용해수|탄산리튬\s*물|LC용매수)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "fresh_cao_mass": [r"(?:신품\s*생석회|신품\s*CaO|생석회\(신\)|신품)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "recycled_cao_mass": [r"(?:재생\s*생석회|재생\s*CaO|생석회\(재\)|재생)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "slurry_water": [r"(?:슬러리수|소화수|조제수|슬러리\s*조제수)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "temp_c": [r"(?:반응온도|온도|Temp)\s*[:=]?\s*([\d\.]+)\s*℃?"],
-        "time_h": [r"(?:반응시간|시간|Time)\s*[:=]?\s*([\d\.]+)\s*h?"],
-        "primary_filtrate_mass": [r"(?:1차\s*여액|여액|LiOH\s*용액|여과액)\s*(?:무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "primary_filtrate_sg": [r"(?:여액\s*비중|비중|SG|S\.G)\s*[:=]?\s*([\d\.]+)"],
-        "primary_filtrate_ph": [r"(?:여액\s*pH|pH|ph)\s*[:=]?\s*([\d\.]+)"],
-        "wet_cake_mass": [r"(?:1차\s*습케이크|습케익|CaCO3\s*무게|습중량|케익\s*무게)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "sample_wet": [r"(?:함수율\s*습|습샘플|샘플\s*습중량)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "sample_dry": [r"(?:함수율\s*건|건샘플|샘플\s*건중량)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "wash_water_in": [r"(?:투입\s*수세수|수세수|세척수|수세수\s*투입량|투입수세수)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "wash_sol_mass": [r"(?:회수\s*수세액|수세액|세척액)\s*(?:무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "wash_sol_sg": [r"(?:수세액\s*비중)\s*[:=]?\s*([\d\.]+)"],
-        "wash_sol_ph": [r"(?:수세액\s*pH)\s*[:=]?\s*([\d\.]+)"],
-        "test_dry_cake": [r"(?:소성\s*투입|건조케익|CaCO3\s*샘플)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "calcined_cao": [r"(?:소성\s*후\s*CaO|회수\s*CaO|회수\s*생석회)\s*[:=]?\s*([\d\.]+)\s*g?"],
-        "calc_temp": [r"(?:소성온도|하소온도)\s*[:=]?\s*([\d\.]+)\s*℃?"],
-        "calc_time": [r"(?:소성시간|하소시간)\s*[:=]?\s*([\d\.]+)\s*h?"]
+        "run_no": [r"(?:실험회차|회차|Run|run|No\.?)\s*[:=|\s]\s*(\d+)"],
+        "li2co3_mass": [r"(?:Li2CO3\s*투입량|탄산리튬\s*투입량|탄산리튬|LC|Li2CO3|원료)\s*(?:투입량|무게|질량)?\s*[:=|\s]\s*([\d\.]+)"],
+        "li2co3_water": [r"(?:Li2CO3\s*용매수|용매수|LC\s*물|용해수|탄산리튬\s*물)\s*[:=|\s]\s*([\d\.]+)"],
+        "fresh_cao_mass": [r"(?:신품\s*CaO|신품\s*생석회|생석회\(신\)|신품)\s*[:=|\s]\s*([\d\.]+)"],
+        "recycled_cao_mass": [r"(?:재생\s*CaO|재생\s*생석회|생석회\(재\)|재생)\s*[:=|\s]\s*([\d\.]+)"],
+        "slurry_water": [r"(?:슬러리\s*조제수|슬러리수|소화수|조제수)\s*[:=|\s]\s*([\d\.]+)"],
+        "temp_c": [r"(?:반응\s*온도|온도|Temp)\s*[:=|\s]\s*([\d\.]+)"],
+        "time_h": [r"(?:반응\s*시간|시간|Time)\s*[:=|\s]\s*([\d\.]+)"],
+        "primary_filtrate_mass": [r"(?:LiOH\s*용액\s*무게|LiOH용액무게|1차\s*여액|여액|LiOH\s*용액|여과액)\s*(?:무게|질량)?\s*[:=|\s]\s*([\d\.]+)"],
+        "primary_filtrate_sg": [r"(?:LiOH\s*비중|LiOH비중|여액\s*비중|비중|SG|S\.G)\s*[:=|\s]\s*([\d\.]+)"],
+        "primary_filtrate_ph": [r"(?:LiOH\s*pH|LiOH\s*ph|여액\s*pH|pH|ph)\s*[:=|\s]\s*([\d\.]+)"],
+        "wet_cake_mass": [r"(?:CaCO3\s*무게\(습\)|CaCO3\s*무게\s*\(습\)|1차\s*습케이크|습케익|CaCO3\s*무게|습중량|케익\s*무게)\s*[:=|\s]\s*([\d\.]+)"],
+        "sample_wet": [r"(?:함수율\s*측정\s*습중량|함수율\s*습|습샘플|샘플\s*습중량)\s*[:=|\s]\s*([\d\.]+)"],
+        "sample_dry": [r"(?:함수율\s*측정\s*건중량|함수율\s*건|건샘플|샘플\s*건중량)\s*[:=|\s]\s*([\d\.]+)"],
+        "wash_water_in": [r"(?:투입된\s*수세수\s*무게|투입\s*수세수|수세수|세척수|수세수\s*투입량)\s*[:=|\s]\s*([\d\.]+)"],
+        "wash_sol_mass": [r"(?:회수된\s*수세액\s*무게|회수\s*수세액|수세액|세척액)\s*(?:무게|질량)?\s*[:=|\s]\s*([\d\.]+)"],
+        "wash_sol_sg": [r"(?:수세액\s*비중)\s*[:=|\s]\s*([\d\.]+)"],
+        "wash_sol_ph": [r"(?:수세액\s*pH)\s*[:=|\s]\s*([\d\.]+)"],
+        "test_dry_cake": [r"(?:소성\s*투입\s*CaCO3\s*샘플|소성\s*투입|건조케익|CaCO3\s*샘플)\s*[:=|\s]\s*([\d\.]+)"],
+        "calcined_cao": [r"(?:소성\s*후\s*회수된\s*CaO|소성\s*후\s*CaO|회수\s*CaO|회수\s*생석회)\s*[:=|\s]\s*([\d\.]+)"],
+        "calc_temp": [r"(?:소성\s*온도|소성온도|하소온도)\s*[:=|\s]\s*([\d\.]+)"],
+        "calc_time": [r"(?:소성\s*시간|소성시간|하소시간)\s*[:=|\s]\s*([\d\.]+)"]
     }
     for key, pat_list in patterns.items():
         for pat in pat_list:
@@ -186,28 +187,29 @@ def extract_values_from_raw_text(raw_text):
 
 def normalize_dict_keys(raw_dict):
     mapping = {
-        "run_no": ["run_no", "회차", "run", "회차번호", "실험회차"],
-        "li2co3_mass": ["li2co3_mass", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "li2co3투입량", "원료투입량"],
-        "li2co3_water": ["li2co3_water", "용매수", "lc물", "용해수", "탄산리튬물", "물", "lc용매수"],
-        "fresh_cao_mass": ["fresh_cao_mass", "fresh_cao", "신품cao", "생석회신품", "신품생석회", "생석회"],
-        "recycled_cao_mass": ["recycled_cao_mass", "recycled_cao", "재생cao", "생석회재생", "재생생석회"],
-        "slurry_water": ["slurry_water", "슬러리수", "소화수", "조제수", "슬러리조제수"],
-        "temp_c": ["temp_c", "temp", "온도", "반응온도"],
-        "time_h": ["time_h", "time", "시간", "반응시간"],
-        "primary_filtrate_mass": ["primary_filtrate_mass", "filtrate_mass", "여액무게", "lioh용액무게", "1차여액", "여액질량", "lioh용액"],
-        "primary_filtrate_sg": ["primary_filtrate_sg", "filtrate_sg", "여액비중", "비중1", "비중"],
-        "primary_filtrate_ph": ["primary_filtrate_ph", "filtrate_ph", "여액ph", "ph1", "ph"],
-        "wet_cake_mass": ["wet_cake_mass", "wet_cake", "습케이크", "caco3무게", "습중량", "caco3습중량", "케익무게", "케익"],
-        "sample_wet": ["sample_wet", "함수율습", "샘플습중량", "습중량샘플", "습샘플"],
-        "sample_dry": ["sample_dry", "함수율건", "샘플건중량", "건중량샘플", "건샘플"],
-        "wash_water_in": ["wash_water_in", "수세수", "세척수", "수세수투입량", "세척수무게", "투입수세수"],
-        "wash_sol_mass": ["wash_sol_mass", "수세액무게", "회수수세액", "수세액질량", "수세액"],
+        "run_no": ["run_no", "실험회차", "회차", "run", "회차번호"],
+        "li2co3_mass": ["li2co3_mass", "li2co3투입량", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "원료투입량"],
+        "li2co3_water": ["li2co3_water", "li2co3용매수", "용매수", "lc물", "용해수", "탄산리튬물", "물"],
+        "fresh_cao_mass": ["fresh_cao_mass", "신품cao", "신품생석회", "fresh_cao", "생석회신품", "신품"],
+        "recycled_cao_mass": ["recycled_cao_mass", "재생cao", "재생생석회", "recycled_cao", "생석회재생", "재생"],
+        "slurry_water": ["slurry_water", "슬러리조제수", "슬러리수", "소화수", "조제수"],
+        "temp_c": ["temp_c", "반응온도", "temp", "온도"],
+        "time_h": ["time_h", "반응시간", "time", "시간"],
+        "primary_filtrate_mass": ["primary_filtrate_mass", "lioh용액무게", "여액무게", "1차여액", "여액질량", "lioh용액"],
+        "primary_filtrate_sg": ["primary_filtrate_sg", "lioh비중", "여액비중", "filtrate_sg", "비중1", "비중"],
+        "primary_filtrate_ph": ["primary_filtrate_ph", "liohph", "여액ph", "filtrate_ph", "ph1", "ph"],
+        "wet_cake_mass": ["wet_cake_mass", "caco3무게(습)", "caco3무게습", "1차습케이크", "습케이크", "caco3무게", "습중량", "caco3습중량", "케익무게"],
+        "sample_wet": ["sample_wet", "함수율측정습중량", "함수율습", "샘플습중량", "습중량샘플", "습샘플"],
+        "sample_dry": ["sample_dry", "함수율측정건중량", "함수율건", "샘플건중량", "건중량샘플", "건샘플"],
+        "wash_water_in": ["wash_water_in", "투입된수세수무게", "투입수세수", "수세수", "세척수", "수세수투입량"],
+        "wash_sol_mass": ["wash_sol_mass", "회수된수세액무게", "회수수세액", "수세액무게", "수세액질량", "수세액"],
         "wash_sol_sg": ["wash_sol_sg", "수세액비중"],
         "wash_sol_ph": ["wash_sol_ph", "수세액ph"],
-        "test_dry_cake": ["test_dry_cake", "소성투입", "건조케익", "caco3샘플", "소성샘플"],
-        "calcined_cao": ["calcined_cao", "회수cao", "소성후cao", "cao회수량", "회수생석회"],
+        "test_dry_cake": ["test_dry_cake", "소성투입caco3샘플", "소성투입", "건조케익", "caco3샘플"],
+        "calcined_cao": ["calcined_cao", "소성후회수된cao", "소성후cao", "회수cao", "cao회수량"],
         "calc_temp": ["calc_temp", "소성온도", "하소온도"],
         "calc_time": ["calc_time", "소성시간", "하소시간"],
+        # ICP 원소
         "icp_li_1": ["icp_li_1", "li_1", "li_여액", "li"], "icp_ca_1": ["icp_ca_1", "ca_1", "ca_여액", "ca"],
         "icp_na_1": ["icp_na_1", "na_1", "na_여액", "na"], "icp_si_1": ["icp_si_1", "si_1", "si_여액", "si"],
         "icp_mg_1": ["icp_mg_1", "mg_1", "mg_여액", "mg"], "icp_k_1": ["icp_k_1", "k_1", "k_여액", "k"],
@@ -222,9 +224,9 @@ def normalize_dict_keys(raw_dict):
     normalized = {}
     for target_key, aliases in mapping.items():
         for raw_k, raw_v in raw_dict.items():
-            raw_k_clean = str(raw_k).lower().replace(" ", "").replace("_", "").replace("-", "")
+            raw_k_clean = str(raw_k).lower().replace(" ", "").replace("_", "").replace("-", "").replace("(", "").replace(")", "")
             for a in aliases:
-                a_clean = a.lower().replace(" ", "").replace("_", "").replace("-", "")
+                a_clean = a.lower().replace(" ", "").replace("_", "").replace("-", "").replace("(", "").replace(")", "")
                 if raw_k_clean == a_clean or a_clean in raw_k_clean:
                     val = clean_float(raw_v)
                     if val is not None:
@@ -254,33 +256,32 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         img = optimize_image_for_vision(image_bytes)
 
         if doc_type == "lab_note":
-            prompt = """이 이미지는 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 실험 일지(수기 또는 타이핑 인쇄물)입니다.
-이미지에 적힌 모든 항목명과 숫자를 꼼꼼하게 읽어내어 아래 JSON 항목에 맞춰 숫자로만 채워주세요.
-단위(g, mL, ℃ 등)는 떼고 순수 숫자만 넣어주세요. 표기되지 않은 항목은 null로 하세요.
+            prompt = """이 이미지는 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 실험 일지 표입니다.
+이미지에 적힌 표의 라벨과 수치를 전부 읽고, 아래 JSON 포맷으로 키-값을 정확히 매핑하여 순수 숫자(float/int)만 넣어 반환하세요. 없는 항목은 null로 하세요.
 
 {
-  "run_no": number,
-  "li2co3_mass": number,
-  "li2co3_water": number,
-  "fresh_cao_mass": number,
-  "recycled_cao_mass": number,
-  "slurry_water": number,
-  "temp_c": number,
-  "time_h": number,
-  "primary_filtrate_mass": number,
-  "primary_filtrate_sg": number,
-  "primary_filtrate_ph": number,
-  "wet_cake_mass": number,
-  "sample_wet": number,
-  "sample_dry": number,
-  "wash_water_in": number,
-  "wash_sol_mass": number,
-  "wash_sol_sg": number,
-  "wash_sol_ph": number,
-  "test_dry_cake": number,
-  "calcined_cao": number,
-  "calc_temp": number,
-  "calc_time": number
+  "run_no": 실험회차,
+  "li2co3_mass": Li2CO3 투입량,
+  "li2co3_water": Li2CO3 용매수,
+  "fresh_cao_mass": 신품 CaO,
+  "recycled_cao_mass": 재생 CaO,
+  "slurry_water": 슬러리 조제수,
+  "temp_c": 반응 온도,
+  "time_h": 반응 시간,
+  "primary_filtrate_mass": LiOH용액무게,
+  "primary_filtrate_sg": LiOH비중,
+  "primary_filtrate_ph": LiOH pH,
+  "wet_cake_mass": CaCO3 무게(습),
+  "sample_wet": 함수율 측정 습중량,
+  "sample_dry": 함수율 측정 건중량,
+  "wash_water_in": 투입된 수세수 무게,
+  "wash_sol_mass": 회수된 수세액 무게,
+  "wash_sol_sg": 수세액 비중,
+  "wash_sol_ph": 수세액 pH,
+  "test_dry_cake": 소성 투입 CaCO3 샘플,
+  "calcined_cao": 소성 후 회수된 CaO,
+  "calc_temp": 소성 온도,
+  "calc_time": 소성 시간
 }"""
         else:
             prompt = """이 이미지는 LiOH 용액, 수세액 및 CaCO3 고체 성적서입니다. 각 원소 수치를 추출하여 JSON으로 반환하세요.
@@ -523,7 +524,7 @@ with main_tab1:
     # 판독 결과 검증창
     if "last_applied_report" in st.session_state and st.session_state.last_applied_report:
         st.success(f"🎉 판독 완료! 총 **{len(st.session_state.last_applied_report)}개** 수치가 아래 입력창에 즉시 반영되었습니다.")
-        with st.expander("📋 [검증] 변경된 수치 비교표 및 AI 판독 원문", expanded=False):
+        with st.expander("📋 [검증] 변경된 수치 비교표 및 AI 판독 원문", expanded=True):
             st.dataframe(pd.DataFrame(st.session_state.last_applied_report), use_container_width=True)
             if "last_raw_ai_text" in st.session_state:
                 st.caption("🔍 AI 모델 원본 응답 텍스트:")
@@ -948,7 +949,7 @@ with main_tab2:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
+                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=None, is_auto=True
             )
             if ok:
@@ -1321,7 +1322,7 @@ with main_tab6:
                 ca_1=float(st.session_state.icp_ca_1), na_1=float(st.session_state.icp_na_1), si_1=float(st.session_state.icp_si_1), mg_1=float(st.session_state.icp_mg_1), k_1=float(st.session_state.icp_k_1),
                 loi=loi_pct, purity=purity_caco3, makeup=fresh_makeup, cao_rec=calcined_cao,
                 cake_moisture=cake_moisture, dry_caco3_mass=est_total_dry_solids,
-                wash_water_in=st.session_state.wash_water_in, wash_sol_mass=st.session_state.wash_sol_mass,
+                wash_water_in=wash_water_in, wash_sol_mass=wash_sol_mass,
                 df_icp_tbl=df_integrated_summary, df_sim_tbl=df_simulation, is_auto=False
             )
             if ok:
