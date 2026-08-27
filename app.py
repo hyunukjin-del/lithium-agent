@@ -144,10 +144,9 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 강력한 숫자 정제 함수 및 고속 Vision OCR 엔진
+# [2] 스마트 키 정규화 및 고속 Vision OCR 엔진
 # --------------------------------------------------------------------------
 def clean_float(val):
-    """'95.34g', '1,040', '80℃' 등에서 순수 숫자 float만 추출"""
     if val is None:
         return None
     if isinstance(val, (int, float)):
@@ -161,8 +160,55 @@ def clean_float(val):
             return None
     return None
 
+def normalize_parsed_keys(raw_dict):
+    """LLM이 한글이나 다양한 키로 반환하더라도 정확한 위젯 키로 매핑"""
+    mapping = {
+        "run_no": ["run_no", "회차", "run", "회차번호", "실험회차"],
+        "li2co3_mass": ["li2co3_mass", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "li2co3투입량"],
+        "li2co3_water": ["li2co3_water", "용매수", "lc물", "용해수", "탄산리튬물"],
+        "fresh_cao_mass": ["fresh_cao_mass", "fresh_cao", "신품cao", "생석회신품", "신품생석회"],
+        "recycled_cao_mass": ["recycled_cao_mass", "recycled_cao", "재생cao", "생석회재생", "재생생석회"],
+        "slurry_water": ["slurry_water", "슬러리수", "소화수", "조제수", "슬러리조제수"],
+        "temp_c": ["temp_c", "temp", "온도", "반응온도"],
+        "time_h": ["time_h", "time", "시간", "반응시간"],
+        "primary_filtrate_mass": ["primary_filtrate_mass", "filtrate_mass", "여액무게", "lioh용액무게", "1차여액", "여액질량"],
+        "primary_filtrate_sg": ["primary_filtrate_sg", "filtrate_sg", "여액비중", "비중1"],
+        "primary_filtrate_ph": ["primary_filtrate_ph", "filtrate_ph", "여액ph", "ph1"],
+        "wet_cake_mass": ["wet_cake_mass", "wet_cake", "습케이크", "caco3무게", "습중량", "caco3습중량"],
+        "sample_wet": ["sample_wet", "함수율습", "샘플습중량", "습중량샘플"],
+        "sample_dry": ["sample_dry", "함수율건", "샘플건중량", "건중량샘플"],
+        "wash_water_in": ["wash_water_in", "수세수", "세척수", "수세수투입량", "세척수무게"],
+        "wash_sol_mass": ["wash_sol_mass", "수세액무게", "회수수세액", "수세액질량"],
+        "wash_sol_sg": ["wash_sol_sg", "수세액비중"],
+        "wash_sol_ph": ["wash_sol_ph", "수세액ph"],
+        "test_dry_cake": ["test_dry_cake", "소성투입", "건조케익", "caco3샘플"],
+        "calcined_cao": ["calcined_cao", "회수cao", "소성후cao", "cao회수량"],
+        "calc_temp": ["calc_temp", "소성온도", "하소온도"],
+        "calc_time": ["calc_time", "소성시간", "하소시간"],
+        # ICP 원소
+        "icp_li_1": ["icp_li_1", "li_1", "li_여액"], "icp_ca_1": ["icp_ca_1", "ca_1", "ca_여액"],
+        "icp_na_1": ["icp_na_1", "na_1", "na_여액"], "icp_si_1": ["icp_si_1", "si_1", "si_여액"],
+        "icp_mg_1": ["icp_mg_1", "mg_1", "mg_여액"], "icp_k_1": ["icp_k_1", "k_1", "k_여액"],
+        "icp_li_w": ["icp_li_w", "li_w", "li_수세"], "icp_ca_w": ["icp_ca_w", "ca_w", "ca_수세"],
+        "icp_na_w": ["icp_na_w", "na_w", "na_수세"], "icp_si_w": ["icp_si_w", "si_w", "si_수세"],
+        "icp_mg_w": ["icp_mg_w", "mg_w", "mg_수세"], "icp_k_w": ["icp_k_w", "k_w", "k_수세"],
+        "solid_li_wt": ["solid_li_wt", "li_wt", "li_고체"], "solid_ca_wt": ["solid_ca_wt", "ca_wt", "ca_고체"],
+        "solid_na_wt": ["solid_na_wt", "na_wt", "na_고체"], "solid_si_wt": ["solid_si_wt", "si_wt", "si_고체"],
+        "solid_mg_wt": ["solid_mg_wt", "mg_wt", "mg_고체"], "solid_k_wt": ["solid_k_wt", "k_wt", "k_고체"]
+    }
+    
+    normalized = {}
+    for target_key, aliases in mapping.items():
+        for raw_k, raw_v in raw_dict.items():
+            raw_k_lower = str(raw_k).lower().strip()
+            if raw_k_lower == target_key.lower() or raw_k_lower in [a.lower() for a in aliases]:
+                val = clean_float(raw_v)
+                if val is not None:
+                    normalized[target_key] = val
+                    break
+    return normalized
+
 def optimize_image_for_vision(image_bytes):
-    """대용량 스마트폰 사진을 1280px 초경량 JPEG로 변환하여 전송 지연 방지"""
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
@@ -191,34 +237,8 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
 
         if doc_type == "lab_note":
             prompt = """당신은 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 수기 실험 일지 전문 데이터 분석가입니다.
-이미지에서 아래 한국어 수기 항목들을 찾아 해당하는 영문 키에 순수 숫자(float)로 매핑하여 JSON으로 반환하세요.
-단위(g, mL, ℃ 등)는 제외하고 숫자만 추출하세요. 적혀있지 않은 항목은 null로 설정하세요.
+이미지에서 아래 항목들의 수치를 정확히 판독하여 JSON 형식으로만 응답해 주세요. 단위나 문자는 제외하고 순수 숫자(float)만 추출해야 합니다.
 
-[수기 표기어와 영문 키 매핑 가이드]
-- run_no: 회차, Run 번호
-- li2co3_mass: 탄산리튬, LC, Li2CO3, 원료 투입량 (g)
-- li2co3_water: 용매수, LC 물, 용해수 (g)
-- fresh_cao_mass: 신품 생석회, 신품 CaO, 생석회(신) (g)
-- recycled_cao_mass: 재생 생석회, 재생 CaO, 생석회(재) (g)
-- slurry_water: 슬러리수, 소화수, 슬러리 조제수 (g)
-- temp_c: 반응온도, 온도 (℃)
-- time_h: 반응시간, 시간 (h)
-- primary_filtrate_mass: 1차 여액, 여액, LiOH 용액 무게 (g)
-- primary_filtrate_sg: 여액 비중, 비중 (g/mL)
-- primary_filtrate_ph: 여액 pH, pH
-- wet_cake_mass: 1차 습케이크, 습케익, CaCO3 무게, 케익 습중량 (g)
-- sample_wet: 함수율 습샘플, 습중량 (g)
-- sample_dry: 함수율 건샘플, 건중량 (g)
-- wash_water_in: 투입 수세수, 세척수, 수세수 투입량 (g)
-- wash_sol_mass: 회수 수세액, 수세액 무게 (g)
-- wash_sol_sg: 수세액 비중 (g/mL)
-- wash_sol_ph: 수세액 pH
-- test_dry_cake: 소성 투입 샘플, 건조케익 (g)
-- calcined_cao: 소성 후 CaO, 회수 생석회 (g)
-- calc_temp: 소성온도, 하소온도 (℃)
-- calc_time: 소성시간, 하소시간 (h)
-
-반드시 아래 JSON 포맷으로만 응답하세요:
 {
   "run_no": number, "li2co3_mass": number, "li2co3_water": number,
   "fresh_cao_mass": number, "recycled_cao_mass": number, "slurry_water": number,
@@ -230,7 +250,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
 }"""
         else:
             prompt = """이 이미지는 LiOH 용액 및 수세액(mg/L), 그리고 CaCO3 고체(wt%) 성적서입니다.
-이미지에서 각 원소별 수치를 추출하여 순수 숫자(float)만 JSON으로 반환하세요.
+추출 가능한 수치를 아래 JSON 포맷으로 반환해 주세요.
 
 {
   "icp_li_1": number, "icp_ca_1": number, "icp_na_1": number, "icp_si_1": number, "icp_mg_1": number, "icp_k_1": number,
