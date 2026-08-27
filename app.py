@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import json
+import re
 import smtplib
 from datetime import datetime
 from PIL import Image, ImageOps
@@ -143,24 +144,35 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 이미지 최적화 및 Gemini 고속 비전 엔진 (무한 로딩 방지)
+# [2] 강력한 숫자 정제 함수 및 고속 Vision OCR 엔진
 # --------------------------------------------------------------------------
+def clean_float(val):
+    """'95.34g', '1,040', '80℃' 등에서 순수 숫자 float만 추출"""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip().replace(",", "")
+    match = re.search(r"[-+]?\d*\.?\d+", val_str)
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return None
+    return None
+
 def optimize_image_for_vision(image_bytes):
     """대용량 스마트폰 사진을 1280px 초경량 JPEG로 변환하여 전송 지연 방지"""
     img = Image.open(io.BytesIO(image_bytes))
-    img = ImageOps.exif_transpose(img)  # 스마트폰 회전 메타데이터 자동 보정
+    img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
-    
-    # 최대 1280px로 리사이징
     max_dim = 1280
     if max(img.size) > max_dim:
         img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-    
     return img
 
 def get_gemini_model_candidates(api_key):
-    """안정적인 모델 후보 리스트 반환"""
     genai.configure(api_key=api_key)
     return [
         "gemini-1.5-flash",
@@ -175,41 +187,50 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         return None, "사이드바에 Google Gemini API Key를 입력하거나 Secrets에 등록해 주세요."
 
     try:
-        # 1. 이미지 초고속 압축
         img = optimize_image_for_vision(image_bytes)
 
-        # 2. 프롬프트 구성
         if doc_type == "lab_note":
-            prompt = """당신은 화학공정 수기 실험 일지 전문 데이터 분석가입니다.
-이미지에서 아래 항목들을 찾아 숫자(float)만 JSON으로 반환하세요. 단위/문자는 제거하고 없는 항목은 null로 하세요.
+            prompt = """당신은 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 수기 실험 일지 전문 데이터 분석가입니다.
+이미지에서 아래 한국어 수기 항목들을 찾아 해당하는 영문 키에 순수 숫자(float)로 매핑하여 JSON으로 반환하세요.
+단위(g, mL, ℃ 등)는 제외하고 숫자만 추출하세요. 적혀있지 않은 항목은 null로 설정하세요.
 
+[수기 표기어와 영문 키 매핑 가이드]
+- run_no: 회차, Run 번호
+- li2co3_mass: 탄산리튬, LC, Li2CO3, 원료 투입량 (g)
+- li2co3_water: 용매수, LC 물, 용해수 (g)
+- fresh_cao_mass: 신품 생석회, 신품 CaO, 생석회(신) (g)
+- recycled_cao_mass: 재생 생석회, 재생 CaO, 생석회(재) (g)
+- slurry_water: 슬러리수, 소화수, 슬러리 조제수 (g)
+- temp_c: 반응온도, 온도 (℃)
+- time_h: 반응시간, 시간 (h)
+- primary_filtrate_mass: 1차 여액, 여액, LiOH 용액 무게 (g)
+- primary_filtrate_sg: 여액 비중, 비중 (g/mL)
+- primary_filtrate_ph: 여액 pH, pH
+- wet_cake_mass: 1차 습케이크, 습케익, CaCO3 무게, 케익 습중량 (g)
+- sample_wet: 함수율 습샘플, 습중량 (g)
+- sample_dry: 함수율 건샘플, 건중량 (g)
+- wash_water_in: 투입 수세수, 세척수, 수세수 투입량 (g)
+- wash_sol_mass: 회수 수세액, 수세액 무게 (g)
+- wash_sol_sg: 수세액 비중 (g/mL)
+- wash_sol_ph: 수세액 pH
+- test_dry_cake: 소성 투입 샘플, 건조케익 (g)
+- calcined_cao: 소성 후 CaO, 회수 생석회 (g)
+- calc_temp: 소성온도, 하소온도 (℃)
+- calc_time: 소성시간, 하소시간 (h)
+
+반드시 아래 JSON 포맷으로만 응답하세요:
 {
-  "run_no": number,
-  "li2co3_mass": number,
-  "li2co3_water": number,
-  "fresh_cao_mass": number,
-  "recycled_cao_mass": number,
-  "slurry_water": number,
-  "temp_c": number,
-  "time_h": number,
-  "primary_filtrate_mass": number,
-  "primary_filtrate_sg": number,
-  "primary_filtrate_ph": number,
-  "wet_cake_mass": number,
-  "sample_wet": number,
-  "sample_dry": number,
-  "wash_water_in": number,
-  "wash_sol_mass": number,
-  "wash_sol_sg": number,
-  "wash_sol_ph": number,
-  "test_dry_cake": number,
-  "calcined_cao": number,
-  "calc_temp": number,
-  "calc_time": number
+  "run_no": number, "li2co3_mass": number, "li2co3_water": number,
+  "fresh_cao_mass": number, "recycled_cao_mass": number, "slurry_water": number,
+  "temp_c": number, "time_h": number, "primary_filtrate_mass": number,
+  "primary_filtrate_sg": number, "primary_filtrate_ph": number,
+  "wet_cake_mass": number, "sample_wet": number, "sample_dry": number,
+  "wash_water_in": number, "wash_sol_mass": number, "wash_sol_sg": number, "wash_sol_ph": number,
+  "test_dry_cake": number, "calcined_cao": number, "calc_temp": number, "calc_time": number
 }"""
         else:
-            prompt = """당신은 화학 분석 성적서 전문 데이터 분석가입니다.
-이미지에서 LiOH 용액, 수세액(mg/L) 및 CaCO3(wt%) 수치를 추출하여 숫자만 JSON으로 반환하세요.
+            prompt = """이 이미지는 LiOH 용액 및 수세액(mg/L), 그리고 CaCO3 고체(wt%) 성적서입니다.
+이미지에서 각 원소별 수치를 추출하여 순수 숫자(float)만 JSON으로 반환하세요.
 
 {
   "icp_li_1": number, "icp_ca_1": number, "icp_na_1": number, "icp_si_1": number, "icp_mg_1": number, "icp_k_1": number,
@@ -217,7 +238,6 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
   "solid_li_wt": number, "solid_ca_wt": number, "solid_na_wt": number, "solid_si_wt": number, "solid_mg_wt": number, "solid_k_wt": number
 }"""
 
-        # 3. 모델 호출 (다단계 Fallback 및 30초 안전 타임아웃)
         model_names = get_gemini_model_candidates(api_key)
         last_error = None
 
@@ -230,5 +250,4 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
                     request_options={"timeout": 30}
                 )
                 if response and response.text:
-                    # 마크다운 코드블록 제거 후 순수 JSON 파싱
                     raw_text = response.text.replace("```json", "").replace("
