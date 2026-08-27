@@ -28,9 +28,7 @@ MW_SI = 28.09
 MW_MG = 24.31
 MW_K = 39.10
 
-# 원소 표준 정렬 순서 정의
 ELEMENT_ORDER = ["Li", "Ca", "Na", "Si", "Mg", "K"]
-
 AGENT_TITLE = "LC-LH전환반응 M/B자동화 및 거동예측 Agent tool"
 
 st.set_page_config(page_title=AGENT_TITLE, page_icon="🧪", layout="wide")
@@ -63,7 +61,6 @@ DEFAULT_DATA = {
     "calcined_cao": 23.9,
     "calc_temp": 1000.0,
     "calc_time": 1.0,
-    # 액체 ICP 분석 (mg/L)
     "icp_li_1": 10500.0,
     "icp_ca_1": 120.0,
     "icp_na_1": 45.0,
@@ -76,7 +73,6 @@ DEFAULT_DATA = {
     "icp_si_w": 2.1,
     "icp_mg_w": 0.3,
     "icp_k_w": 2.0,
-    # 고체 CaCO3 분석 (wt%)
     "solid_li_wt": 0.38,
     "solid_ca_wt": 38.20,
     "solid_na_wt": 0.015,
@@ -97,7 +93,6 @@ def sync_run_from_tab2():
     st.session_state.run_no = st.session_state.tab2_run_no
     st.session_state.tab1_run_no = st.session_state.tab2_run_no
 
-# Secrets 키 연동
 secret_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -161,7 +156,6 @@ def clean_float(val):
     return None
 
 def normalize_parsed_keys(raw_dict):
-    """LLM이 한글이나 다양한 키로 반환하더라도 정확한 위젯 키로 매핑"""
     mapping = {
         "run_no": ["run_no", "회차", "run", "회차번호", "실험회차"],
         "li2co3_mass": ["li2co3_mass", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "li2co3투입량"],
@@ -185,7 +179,6 @@ def normalize_parsed_keys(raw_dict):
         "calcined_cao": ["calcined_cao", "회수cao", "소성후cao", "cao회수량"],
         "calc_temp": ["calc_temp", "소성온도", "하소온도"],
         "calc_time": ["calc_time", "소성시간", "하소시간"],
-        # ICP 원소
         "icp_li_1": ["icp_li_1", "li_1", "li_여액"], "icp_ca_1": ["icp_ca_1", "ca_1", "ca_여액"],
         "icp_na_1": ["icp_na_1", "na_1", "na_여액"], "icp_si_1": ["icp_si_1", "si_1", "si_여액"],
         "icp_mg_1": ["icp_mg_1", "mg_1", "mg_여액"], "icp_k_1": ["icp_k_1", "k_1", "k_여액"],
