@@ -136,7 +136,7 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 1,500회/일 대용량 무료 모델 우선 연동 & 429 Quota 자동 우회 엔진
+# [2] 1,500회/일 대용량 모델 전용 고속 Vision OCR 엔진
 # --------------------------------------------------------------------------
 def clean_float(val):
     if val is None:
@@ -153,7 +153,6 @@ def clean_float(val):
     return None
 
 def extract_values_from_raw_text(raw_text):
-    """손글씨/인쇄 텍스트에서 정규식으로 수치 강제 추출"""
     extracted = {}
     patterns = {
         "run_no": [r"(?:실험회차|회차|Run|run|No\.?)\s*[:=|\s]\s*(\d+)"],
@@ -245,7 +244,7 @@ def optimize_image_for_vision(image_bytes):
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
-    max_dim = 900
+    max_dim = 800
     if max(img.size) > max_dim:
         img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img
@@ -295,12 +294,11 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
   "solid_li_wt": number, "solid_ca_wt": number, "solid_na_wt": number, "solid_si_wt": number, "solid_mg_wt": number, "solid_k_wt": number
 }"""
 
-        # 1일 1,500회 대용량 무료 모델 순서로 자동 우회 (429 Quota 에러 방지)
+        # 1일 1,500회 대용량 무료 모델만 호출 (gemini-3.6-flash 완전 배제)
         models_to_try = [
-            "gemini-2.0-flash",
             "gemini-1.5-flash",
+            "gemini-2.0-flash",
             "gemini-1.5-flash-8b",
-            "gemini-2.0-flash-lite",
             "gemini-1.5-pro"
         ]
         
@@ -310,7 +308,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         for m_name in models_to_try:
             try:
                 model = genai.GenerativeModel(m_name)
-                resp = model.generate_content([img, prompt], request_options={"timeout": 15})
+                resp = model.generate_content([img, prompt], request_options={"timeout": 12})
                 if resp and resp.text:
                     raw_text = resp.text
                     break
@@ -319,7 +317,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
                 continue
 
         if not raw_text:
-            return None, "", f"AI 모델 호출 한도 오류: {last_err}"
+            return None, "", f"AI 모델 호출 오류 (1일 한도 소진 가능성): {last_err}"
 
         parsed_dict = {}
         try:
@@ -450,7 +448,7 @@ def send_email_report(run_num, mass_cls, loss_m, li_rec_tot, li_rec_1, li_rec_w,
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.header("🔑 Google Gemini AI 설정")
-    st.caption("무료 Gemini API Key로 사진 인식 및 자율 DoE 레시피를 생성합니다.")
+    st.caption("1,500회/일 대용량 무료 모델로 사진 인식 및 DoE 레시피를 생성합니다.")
     st.session_state.gemini_api_key = st.text_input(
         "Google Gemini API Key", 
         value=st.session_state.gemini_api_key, 
@@ -458,7 +456,7 @@ with st.sidebar:
         help="aistudio.google.com에서 발급받은 AIzaSy... 키를 입력하세요."
     )
     if st.session_state.gemini_api_key:
-        st.success("✅ Gemini AI 준비 완료 (1,500회/일 대용량 모델 연동)")
+        st.success("✅ Gemini AI 준비 완료 (1,500회/일 정식 모델 연동)")
     st.divider()
 
 # --------------------------------------------------------------------------
