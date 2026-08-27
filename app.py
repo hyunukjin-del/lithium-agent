@@ -134,7 +134,7 @@ if "chat_messages" not in st.session_state:
     ]
 
 # --------------------------------------------------------------------------
-# [2] 스마트 키 정규화 및 고속 Vision OCR 엔진
+# [2] 스마트 하이브리드 Vision OCR 엔진 (JSON + 정규식 텍스트 2중 파싱)
 # --------------------------------------------------------------------------
 def clean_float(val):
     if val is None:
@@ -149,6 +149,43 @@ def clean_float(val):
         except ValueError:
             return None
     return None
+
+def extract_values_from_text(raw_text):
+    """JSON 파싱이 불완전할 때 원본 텍스트에서 정규식으로 수치를 강제 추출하는 Fallback"""
+    extracted = {}
+    patterns = {
+        "run_no": [r"(?:회차|Run|run|No\.?)\s*[:=]?\s*(\d+)"],
+        "li2co3_mass": [r"(?:탄산리튬|LC|Li2CO3|원료)\s*(?:투입량|무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "li2co3_water": [r"(?:용매수|LC\s*물|용해수|탄산리튬\s*물)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "fresh_cao_mass": [r"(?:신품\s*생석회|신품\s*CaO|생석회\(신\)|신품)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "recycled_cao_mass": [r"(?:재생\s*생석회|재생\s*CaO|생석회\(재\)|재생)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "slurry_water": [r"(?:슬러리수|소화수|조제수|슬러리\s*조제수)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "temp_c": [r"(?:반응온도|온도|Temp)\s*[:=]?\s*([\d\.]+)\s*℃?"],
+        "time_h": [r"(?:반응시간|시간|Time)\s*[:=]?\s*([\d\.]+)\s*h?"],
+        "primary_filtrate_mass": [r"(?:1차\s*여액|여액|LiOH\s*용액|여과액)\s*(?:무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "primary_filtrate_sg": [r"(?:여액\s*비중|비중|SG|S\.G)\s*[:=]?\s*([\d\.]+)"],
+        "primary_filtrate_ph": [r"(?:여액\s*pH|pH|ph)\s*[:=]?\s*([\d\.]+)"],
+        "wet_cake_mass": [r"(?:1차\s*습케이크|습케익|CaCO3\s*무게|습중량|케익\s*무게)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "sample_wet": [r"(?:함수율\s*습|습샘플|샘플\s*습중량)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "sample_dry": [r"(?:함수율\s*건|건샘플|샘플\s*건중량)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "wash_water_in": [r"(?:투입\s*수세수|수세수|세척수|수세수\s*투입량)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "wash_sol_mass": [r"(?:회수\s*수세액|수세액|세척액)\s*(?:무게|질량)?\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "wash_sol_sg": [r"(?:수세액\s*비중)\s*[:=]?\s*([\d\.]+)"],
+        "wash_sol_ph": [r"(?:수세액\s*pH)\s*[:=]?\s*([\d\.]+)"],
+        "test_dry_cake": [r"(?:소성\s*투입|건조케익|CaCO3\s*샘플)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "calcined_cao": [r"(?:소성\s*후\s*CaO|회수\s*CaO|회수\s*생석회)\s*[:=]?\s*([\d\.]+)\s*g?"],
+        "calc_temp": [r"(?:소성온도|하소온도)\s*[:=]?\s*([\d\.]+)\s*℃?"],
+        "calc_time": [r"(?:소성시간|하소시간)\s*[:=]?\s*([\d\.]+)\s*h?"]
+    }
+    for key, pat_list in patterns.items():
+        for pat in pat_list:
+            m = re.search(pat, raw_text, re.IGNORECASE)
+            if m:
+                v = clean_float(m.group(1))
+                if v is not None:
+                    extracted[key] = v
+                    break
+    return extracted
 
 def normalize_parsed_keys(raw_dict):
     mapping = {
@@ -234,8 +271,8 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
 
         if doc_type == "lab_note":
             prompt = """이 이미지는 화학공정 실험 일지(수기 또는 타이핑 인쇄물)입니다.
-이미지 내의 모든 항목명과 수치를 정확히 읽고, 아래 항목에 해당하는 값을 순수 숫자(float)로만 매핑하여 JSON으로 반환하세요.
-단위(g, mL, ℃ 등)나 문자는 제거하고 숫자만 넣으세요. 표기되지 않은 항목은 null로 하세요.
+이미지에 적힌 글자와 숫자를 최대한 꼼꼼하게 읽어내어 아래 JSON 항목에 맞춰 숫자로만 채워주세요.
+문맥상 가장 적절한 항목에 매핑하고, 단위는 떼고 순수 숫자만 넣어주세요.
 
 {
   "run_no": number,
@@ -273,7 +310,7 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         response = model.generate_content(
             [img, prompt],
             generation_config={"response_mime_type": "application/json"},
-            request_options={"timeout": 30}
+            request_options={"timeout": 35}
         )
         
         if response and response.text:
