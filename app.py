@@ -34,12 +34,13 @@ AGENT_TITLE = "LC-LH전환반응 M/B자동화 및 거동예측 Agent tool"
 st.set_page_config(page_title=AGENT_TITLE, page_icon="🧪", layout="wide")
 
 # --------------------------------------------------------------------------
-# [1] 기본 세션 상태 초기화
+# [1] 기본 세션 상태 초기화 & 위젯 리프레시 버전 관리
 # --------------------------------------------------------------------------
+if "widget_ver" not in st.session_state:
+    st.session_state.widget_ver = 1
+
 DEFAULT_DATA = {
     "run_no": 1,
-    "tab1_run_no": 1,
-    "tab2_run_no": 1,
     "li2co3_mass": 95.34,
     "li2co3_water": 1040.0,
     "fresh_cao_mass": 92.42,
@@ -61,6 +62,7 @@ DEFAULT_DATA = {
     "calcined_cao": 23.9,
     "calc_temp": 1000.0,
     "calc_time": 1.0,
+    # 액체 ICP 분석 (mg/L)
     "icp_li_1": 10500.0,
     "icp_ca_1": 120.0,
     "icp_na_1": 45.0,
@@ -73,6 +75,7 @@ DEFAULT_DATA = {
     "icp_si_w": 2.1,
     "icp_mg_w": 0.3,
     "icp_k_w": 2.0,
+    # 고체 CaCO3 분석 (wt%)
     "solid_li_wt": 0.38,
     "solid_ca_wt": 38.20,
     "solid_na_wt": 0.015,
@@ -84,14 +87,6 @@ DEFAULT_DATA = {
 for k, v in DEFAULT_DATA.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
-def sync_run_from_tab1():
-    st.session_state.run_no = st.session_state.tab1_run_no
-    st.session_state.tab2_run_no = st.session_state.tab1_run_no
-
-def sync_run_from_tab2():
-    st.session_state.run_no = st.session_state.tab2_run_no
-    st.session_state.tab1_run_no = st.session_state.tab2_run_no
 
 secret_key = ""
 try:
@@ -158,30 +153,30 @@ def clean_float(val):
 def normalize_parsed_keys(raw_dict):
     mapping = {
         "run_no": ["run_no", "회차", "run", "회차번호", "실험회차"],
-        "li2co3_mass": ["li2co3_mass", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "li2co3투입량"],
-        "li2co3_water": ["li2co3_water", "용매수", "lc물", "용해수", "탄산리튬물"],
-        "fresh_cao_mass": ["fresh_cao_mass", "fresh_cao", "신품cao", "생석회신품", "신품생석회"],
+        "li2co3_mass": ["li2co3_mass", "li2co3", "lc", "탄산리튬", "탄산리튬투입량", "li2co3투입량", "원료투입량"],
+        "li2co3_water": ["li2co3_water", "용매수", "lc물", "용해수", "탄산리튬물", "물"],
+        "fresh_cao_mass": ["fresh_cao_mass", "fresh_cao", "신품cao", "생석회신품", "신품생석회", "생석회"],
         "recycled_cao_mass": ["recycled_cao_mass", "recycled_cao", "재생cao", "생석회재생", "재생생석회"],
         "slurry_water": ["slurry_water", "슬러리수", "소화수", "조제수", "슬러리조제수"],
         "temp_c": ["temp_c", "temp", "온도", "반응온도"],
         "time_h": ["time_h", "time", "시간", "반응시간"],
-        "primary_filtrate_mass": ["primary_filtrate_mass", "filtrate_mass", "여액무게", "lioh용액무게", "1차여액", "여액질량"],
-        "primary_filtrate_sg": ["primary_filtrate_sg", "filtrate_sg", "여액비중", "비중1"],
-        "primary_filtrate_ph": ["primary_filtrate_ph", "filtrate_ph", "여액ph", "ph1"],
-        "wet_cake_mass": ["wet_cake_mass", "wet_cake", "습케이크", "caco3무게", "습중량", "caco3습중량"],
-        "sample_wet": ["sample_wet", "함수율습", "샘플습중량", "습중량샘플"],
-        "sample_dry": ["sample_dry", "함수율건", "샘플건중량", "건중량샘플"],
-        "wash_water_in": ["wash_water_in", "수세수", "세척수", "수세수투입량", "세척수무게"],
-        "wash_sol_mass": ["wash_sol_mass", "수세액무게", "회수수세액", "수세액질량"],
+        "primary_filtrate_mass": ["primary_filtrate_mass", "filtrate_mass", "여액무게", "lioh용액무게", "1차여액", "여액질량", "lioh용액"],
+        "primary_filtrate_sg": ["primary_filtrate_sg", "filtrate_sg", "여액비중", "비중1", "비중"],
+        "primary_filtrate_ph": ["primary_filtrate_ph", "filtrate_ph", "여액ph", "ph1", "ph"],
+        "wet_cake_mass": ["wet_cake_mass", "wet_cake", "습케이크", "caco3무게", "습중량", "caco3습중량", "케익무게", "케익"],
+        "sample_wet": ["sample_wet", "함수율습", "샘플습중량", "습중량샘플", "습샘플"],
+        "sample_dry": ["sample_dry", "함수율건", "샘플건중량", "건중량샘플", "건샘플"],
+        "wash_water_in": ["wash_water_in", "수세수", "세척수", "수세수투입량", "세척수무게", "투입수세수"],
+        "wash_sol_mass": ["wash_sol_mass", "수세액무게", "회수수세액", "수세액질량", "수세액"],
         "wash_sol_sg": ["wash_sol_sg", "수세액비중"],
         "wash_sol_ph": ["wash_sol_ph", "수세액ph"],
-        "test_dry_cake": ["test_dry_cake", "소성투입", "건조케익", "caco3샘플"],
-        "calcined_cao": ["calcined_cao", "회수cao", "소성후cao", "cao회수량"],
+        "test_dry_cake": ["test_dry_cake", "소성투입", "건조케익", "caco3샘플", "소성샘플"],
+        "calcined_cao": ["calcined_cao", "회수cao", "소성후cao", "cao회수량", "회수생석회"],
         "calc_temp": ["calc_temp", "소성온도", "하소온도"],
         "calc_time": ["calc_time", "소성시간", "하소시간"],
-        "icp_li_1": ["icp_li_1", "li_1", "li_여액"], "icp_ca_1": ["icp_ca_1", "ca_1", "ca_여액"],
-        "icp_na_1": ["icp_na_1", "na_1", "na_여액"], "icp_si_1": ["icp_si_1", "si_1", "si_여액"],
-        "icp_mg_1": ["icp_mg_1", "mg_1", "mg_여액"], "icp_k_1": ["icp_k_1", "k_1", "k_여액"],
+        "icp_li_1": ["icp_li_1", "li_1", "li_여액", "li"], "icp_ca_1": ["icp_ca_1", "ca_1", "ca_여액", "ca"],
+        "icp_na_1": ["icp_na_1", "na_1", "na_여액", "na"], "icp_si_1": ["icp_si_1", "si_1", "si_여액", "si"],
+        "icp_mg_1": ["icp_mg_1", "mg_1", "mg_여액", "mg"], "icp_k_1": ["icp_k_1", "k_1", "k_여액", "k"],
         "icp_li_w": ["icp_li_w", "li_w", "li_수세"], "icp_ca_w": ["icp_ca_w", "ca_w", "ca_수세"],
         "icp_na_w": ["icp_na_w", "na_w", "na_수세"], "icp_si_w": ["icp_si_w", "si_w", "si_수세"],
         "icp_mg_w": ["icp_mg_w", "mg_w", "mg_수세"], "icp_k_w": ["icp_k_w", "k_w", "k_수세"],
@@ -193,12 +188,16 @@ def normalize_parsed_keys(raw_dict):
     normalized = {}
     for target_key, aliases in mapping.items():
         for raw_k, raw_v in raw_dict.items():
-            raw_k_lower = str(raw_k).lower().strip()
-            if raw_k_lower == target_key.lower() or raw_k_lower in [a.lower() for a in aliases]:
-                val = clean_float(raw_v)
-                if val is not None:
-                    normalized[target_key] = val
-                    break
+            raw_k_clean = str(raw_k).lower().replace(" ", "").replace("_", "").replace("-", "")
+            for a in aliases:
+                a_clean = a.lower().replace(" ", "").replace("_", "").replace("-", "")
+                if raw_k_clean == a_clean or a_clean in raw_k_clean:
+                    val = clean_float(raw_v)
+                    if val is not None:
+                        normalized[target_key] = val
+                        break
+            if target_key in normalized:
+                break
     return normalized
 
 def optimize_image_for_vision(image_bytes):
@@ -211,14 +210,19 @@ def optimize_image_for_vision(image_bytes):
         img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img
 
-def get_gemini_model_candidates(api_key):
+def get_best_available_model(api_key):
     genai.configure(api_key=api_key)
-    return [
-        "gemini-1.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro"
-    ]
+    try:
+        available = [m.name.replace("models/", "") for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
+        preferred = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+        for p in preferred:
+            if p in available:
+                return genai.GenerativeModel(p)
+        if available:
+            return genai.GenerativeModel(available[0])
+    except Exception:
+        pass
+    return genai.GenerativeModel("gemini-3.6-flash")
 
 def parse_image_with_vision(image_bytes, doc_type="lab_note"):
     api_key = st.session_state.gemini_api_key.strip()
@@ -229,38 +233,48 @@ def parse_image_with_vision(image_bytes, doc_type="lab_note"):
         img = optimize_image_for_vision(image_bytes)
 
         if doc_type == "lab_note":
-            prompt = """당신은 탄산리튬(LC) 가성화 및 Ca-Loop 습식 제련 공정의 수기 실험 일지 전문 데이터 분석가입니다.
-이미지에서 아래 항목들의 수치를 정확히 판독하여 JSON 형식으로만 응답해 주세요. 단위나 문자는 제외하고 순수 숫자(float)만 추출해야 합니다.
+            prompt = """이 이미지는 화학공정 실험 일지(수기 또는 타이핑 인쇄물)입니다.
+이미지 내의 모든 항목명과 수치를 정확히 읽고, 아래 항목에 해당하는 값을 순수 숫자(float)로만 매핑하여 JSON으로 반환하세요.
+단위(g, mL, ℃ 등)나 문자는 제거하고 숫자만 넣으세요. 표기되지 않은 항목은 null로 하세요.
 
 {
-  "run_no": number, "li2co3_mass": number, "li2co3_water": number,
-  "fresh_cao_mass": number, "recycled_cao_mass": number, "slurry_water": number,
-  "temp_c": number, "time_h": number, "primary_filtrate_mass": number,
-  "primary_filtrate_sg": number, "primary_filtrate_ph": number,
-  "wet_cake_mass": number, "sample_wet": number, "sample_dry": number,
-  "wash_water_in": number, "wash_sol_mass": number, "wash_sol_sg": number, "wash_sol_ph": number,
-  "test_dry_cake": number, "calcined_cao": number, "calc_temp": number, "calc_time": number
+  "run_no": number,
+  "li2co3_mass": number,
+  "li2co3_water": number,
+  "fresh_cao_mass": number,
+  "recycled_cao_mass": number,
+  "slurry_water": number,
+  "temp_c": number,
+  "time_h": number,
+  "primary_filtrate_mass": number,
+  "primary_filtrate_sg": number,
+  "primary_filtrate_ph": number,
+  "wet_cake_mass": number,
+  "sample_wet": number,
+  "sample_dry": number,
+  "wash_water_in": number,
+  "wash_sol_mass": number,
+  "wash_sol_sg": number,
+  "wash_sol_ph": number,
+  "test_dry_cake": number,
+  "calcined_cao": number,
+  "calc_temp": number,
+  "calc_time": number
 }"""
         else:
-            prompt = """이 이미지는 LiOH 용액 및 수세액(mg/L), 그리고 CaCO3 고체(wt%) 성적서입니다.
-추출 가능한 수치를 아래 JSON 포맷으로 반환해 주세요.
-
+            prompt = """이 이미지는 LiOH 용액, 수세액 및 CaCO3 고체 성적서입니다. 각 원소 수치를 추출하여 JSON으로 반환하세요.
 {
   "icp_li_1": number, "icp_ca_1": number, "icp_na_1": number, "icp_si_1": number, "icp_mg_1": number, "icp_k_1": number,
   "icp_li_w": number, "icp_ca_w": number, "icp_na_w": number, "icp_si_w": number, "icp_mg_w": number, "icp_k_w": number,
   "solid_li_wt": number, "solid_ca_wt": number, "solid_na_wt": number, "solid_si_wt": number, "solid_mg_wt": number, "solid_k_wt": number
 }"""
 
-        model_names = get_gemini_model_candidates(api_key)
-        last_error = None
-
-        for m_name in model_names:
-            try:
-                model = genai.GenerativeModel(m_name)
-                response = model.generate_content(
-                    [img, prompt],
-                    generation_config={"response_mime_type": "application/json"},
-                    request_options={"timeout": 30}
-                )
-                if response and response.text:
-                    raw_text = response.text.replace("```json", "").replace("
+        model = get_best_available_model(api_key)
+        response = model.generate_content(
+            [img, prompt],
+            generation_config={"response_mime_type": "application/json"},
+            request_options={"timeout": 30}
+        )
+        
+        if response and response.text:
+            raw_text = response.text.replace("```json", "").replace("
